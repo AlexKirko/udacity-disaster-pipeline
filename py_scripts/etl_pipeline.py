@@ -14,7 +14,7 @@ if __name__ == '__main__':
     Path to the messages csv dataset""")
     parser.add_argument('--categories_path', type=str, default='./raw_data/categories.csv', help="""
     Path to the categories csv dataset""")
-    parser.add_argument('--sql_db_path', type=str, default='./database/disaster_response.db', help="""
+    parser.add_argument('--sql_db_path', type=str, default='/database/disaster_response.db', help="""
     Path to the SQLite database to save the results into""")
     parser.add_argument('--sql_table', type=str, default='categorized_messages', help="""
     SQL table name to save the results into""")
@@ -27,7 +27,8 @@ if __name__ == '__main__':
 
     #Check if the database is a db file
     #We'll be dropping it if it exists, so better make sure
-    if sql_db_path[:-3] != '.db':
+    if sql_db_path[-3:] != '.db':
+        print('sql_db_path is {}'.format(sql_db_path))
         raise ValueError('sql_db_path must point to an existing db file or be a path to a new one.')
 
     #Load the datasets
@@ -77,3 +78,5 @@ if __name__ == '__main__':
 
     engine = create_engine('sqlite://' + sql_db_path)
     df.to_sql(sql_table, engine, index=False)
+
+    print("Results successfully saved to {} database, table {}".format(sql_db_path, sql_table))
