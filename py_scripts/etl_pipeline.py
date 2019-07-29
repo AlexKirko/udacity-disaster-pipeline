@@ -25,6 +25,11 @@ if __name__ == '__main__':
     sql_db_path = args.sql_db_path
     sql_table = args.sql_table
 
+    #Check if the database is a db file
+    #We'll be dropping it if it exists, so better make sure
+    if sql_db_path[:-3] != '.db':
+        raise ValueError('sql_db_path must point to an existing db file or be a path to a new one.')
+
     #Load the datasets
     messages = pd.read_csv(messages_path, sep=',', quotechar='"')
     categories = pd.read_csv(categories_path, sep=',', quotechar='"')
@@ -63,6 +68,12 @@ if __name__ == '__main__':
 
     #Now we can safely merge messages with categories
     df = pd.merge(messages, categories_new)
+
+    #Drop the database if exists
+    try:
+        os.remove(sql_db_path)
+    except:
+        pass
 
     engine = create_engine('sqlite://' + sql_db_path)
     df.to_sql(sql_table, engine, index=False)
