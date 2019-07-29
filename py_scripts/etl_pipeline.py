@@ -3,6 +3,8 @@ import numpy as np
 from dateutil.parser import parser
 from sqlalchemy import create_engine
 
+from etlfuncs import test_categories, get_cat_values
+
 import argparse
 
 if __name__ == '__main__':
@@ -37,7 +39,30 @@ if __name__ == '__main__':
 
     categories = categories.drop_duplicates(subset=['id'], keep='first')
 
-    #Now we can safely merge
-    df = pd.merge(messages, categories)
+    #Split the categories into separate columns
+    # Get column names
+    cols = categories.loc[0, 'categories'].split(';')
+    cols = [x[:-2] for x in cols]
 
-    
+    # Turn a Series of str in to a Series of lists
+    data = categories['categories'].apply(get_cat_values)
+    # Turn the Series into a list of lists
+    data = list(data)
+    # Direct cast to np.array didn't work as expected (made an array of lists)
+    data = np.array(data)
+
+    # Make the ID column
+    ids = np.array(categories['id'])[np.newaxis].T
+
+    # Add ID to the values and to the column names list
+    data_full = np.hstack((data, ids))
+    cols_full = cols + ['id']
+
+    # We'll make a new categories DataFrame
+    categories_new = pd.DataFrame(data=data_full, columns=cols_full)
+
+    #Now we can safely merge messages with categories
+    df = pd.merge(messages, categories_new)
+
+    engine = create_engine('sqlite://' + sql_db_path)
+    df.to_sql(sql_table, engine, index=False)
