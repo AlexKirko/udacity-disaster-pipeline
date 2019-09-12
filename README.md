@@ -34,7 +34,8 @@ the __ML Pipeline Preparation.ipynb__.
 * ML Pipeline Preparation.ipynb - classification (main file). DOES requrie Google's
                                 pretrained word2Vec to run fully (but you can always
                                 just unpickle).
-* pipeline_advanced3.pkl - pre-trained classifier that can be unpickled
+* ./pickles/pipeline_advanced3.pkl - pre-trained classifier that can be unpickled
+* ./pickles/words_mappings.pkl - cached words mappings
 * ./raw_data/categories.csv - message categories data
 * ./raw_data/messages.csv - messages themselves
 * ./web/process_data.py - file for command-line ETL
