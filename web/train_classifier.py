@@ -12,21 +12,17 @@ from nltk.corpus import stopwords as nl_stopwords
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.feature_extraction.text import TfidfTransformer
-from sklearn.multioutput import MultiOutputClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.multioutput import MultiOutputClassifier
 from sklearn.metrics import classification_report, f1_score, roc_auc_score
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
+from sklearn.model_selection import GridSearchCV
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
 from nltk.stem import WordNetLemmatizer
   
-nltk.download('punkt')
 nltk.download('stopwords')
 
-import gensim
 
 import dill
 import pickle
@@ -43,7 +39,7 @@ def load_data(database_filepath):
     Out:
     X_text(Series): a Series of messages
     """
-    engine = create_engine('sqlite:///database/disaster_response.db')
+    engine = create_engine('sqlite:///' + database_filepath)
     df = pd.read_sql_table('categorized_messages', con=engine)
     X_text = df['message']
     X_genre = df['genre']
@@ -107,66 +103,8 @@ def get_vector_func(w2v, w_placeholder='supercollider'):
         return vect
     return try_get_vector
 
-#We begin by building a couple feature engineering transformers
-class SentLenExtractor(BaseEstimator, TransformerMixin):
-    """
-    Class extracts average sentence length and standard deviation
-    of the sentence length from a document.
-    I don't expect this to improve the model. This transformer and
-    the next were exercises leading to w2vClusters
-    """
-    
-    def __init__(self):
-        """
-        sent_lengths (list): sentence lengths
-        mess_col (str): name of the message column
-        """
-        self.sent_lengths = None
-    
-    def calc_sent_lengths(self, text):
-        sentence_list = nltk.sent_tokenize(text)
-        if sentence_list:
-            sent_lengths = [len(s) for s in sentence_list]
-        else:
-            sent_lengths = [0]
-        return sent_lengths
-    
-    def len_mean(self, text):
-        if self.sent_lengths is None:
-            self.calc_sent_lengths(text)
-        return np.mean(self.sent_lengths)
-    
-    def len_std(self, text):
-        if self.sent_lengths is None:
-            self.calc_sent_lengths(text)
-        return np.std(self.sent_lengths)
-    
-    def fit(self, X, y=None):
-        return self
-    
-    def transform(self, X):
-        SL = X.apply(self.calc_sent_lengths)
-        X_mean = SL.apply(np.mean).rename('sent_len_mean')
-        X_std = SL.apply(np.std).rename('sent_len_std')
-        X_len = pd.concat([X_mean, X_std], axis=1)
-        return X_len
 
-class PunktCounter(BaseEstimator, TransformerMixin):
-    """
-    Class calculates the number of punctuation characters in text
-    """
-    
-    def fit(self, X, y=None):
-        return self
-    
-    def transform(self, X):
-        X_quest = X.apply(lambda x: x.count('?')).rename('quest_cnt')
-        X_comma = X.apply(lambda x: x.count(',')).rename('comma_cnt')
-        X_exclam = X.apply(lambda x: x.count('!')).rename('excl_cnt')
-        X_punct = pd.concat([X_quest, X_comma, X_exclam], axis=1)
-        return X_punct
-
-# TO ADD: feature engineering: word2vec and clusterization
+# Feature engineering: word2vec and clusterization
 class w2vClusters(BaseEstimator, TransformerMixin):
     
     def __init__(self, n_clusters, words_mappings, 
@@ -275,41 +213,18 @@ class w2vClusters(BaseEstimator, TransformerMixin):
         X_clusters = pd.DataFrame(X_clusters.values.tolist(), index=X_clusters.index, 
                                   columns=['cluster1','cluster2','cluster3'])
         return X_clusters
-    
-class Debug(BaseEstimator, TransformerMixin):
 
-    def transform(self, X):
-        print(X.shape)
-        print(X)
-        # what other output you want
-        return X
-
-    def fit(self, X, y=None, **fit_params):
-        return self
 
 def build_model(words_mappings,tokenize,stopwords):
     # This pipeline incorporates the w2vClusters transformer to incorporate some
     # word meanings into the model
-    s_len = Pipeline([
-        ('sl_extract',SentLenExtractor()),
-        ('sl_scale',MinMaxScaler())    
-    ])
-
-    s_punct = Pipeline([
-        ('sp_extract',PunktCounter()),
-        ('sp_scale',MinMaxScaler())   
-
-    ])
 
     # Advanced pipeline
     pipeline_advanced3 = Pipeline([
-        #('debug1',Debug()),
         ('feat', FeatureUnion(
             [('BoW',Pipeline(
                 [('vec',CountVectorizer(tokenizer=lambda x: tokenize(x, stopwords))),
                 ('tfidf',TfidfTransformer())])),
-            #('sentlen',s_len),
-            #('punkt',s_punct),
             ('cl_freqs',Pipeline([
                 # I tried different n_clusters here. Between 20 and 30 works best
                 # Too little, and everything ends up in one cluster
@@ -317,17 +232,15 @@ def build_model(words_mappings,tokenize,stopwords):
                 ('w2v',w2vClusters(n_clusters=27, n_jobs=3, words_mappings=words_mappings, tokenize=tokenize)),
                 ('one_hot',OneHotEncoder(categories='auto',handle_unknown='ignore'))]))
             ])),
-        #('debug2',Debug()),
         ('clf',MultiOutputClassifier(estimator=xgb.XGBClassifier(
             random_state=42,n_estimators=200,subsample=0.8,max_depth=4,
             learning_rate=0.1,colsample_bytree=0.4,scale_pos_weight=3)))
     ])
-    pipeline_advanced3.fit()
-    
+        
     return pipeline_advanced3
 
 
-def evaluate_model(model, X_test, Y_test, category_names):
+def evaluate_model(model, X_test, Y_test):
     # Testing the efficiency
     Y_pred = model.predict(X_test)
     model_fscores = {}
@@ -356,31 +269,12 @@ def main():
         X_train, X_test, Y_train, Y_test = train_test_split(X_text, Y, test_size=0.2, random_state=42)
         
         stopwords = nl_stopwords.words('english')
-        #Make preparations for the word2Vec part
-        try:
-            #Load in word2vec
-            w2v_model = gensim.models.KeyedVectors.load_word2vec_format('./.word2vec/GoogleNews-vectors-negative300.bin',binary=True)
-        except:
-            raise ValueError('Word2Vec missing at ./.word2vec/GoogleNews-vectors-negative300.bin')
         
-        #The goal is to create a mapping that maps a word to a word cluster
-        #We'll later use the three most prominent cluster numbers as factors
-        #and try to improve the model this way
+        # We load the word-to-vecotr mappings that we prepared
+        # This is done to avoid uploading the 3.5GB Google model into the
+        # workspace
 
-        #First we need to get all the words into one array
-        all_words = []
-        i=0
-        for sent in X_text:
-            all_words += tokenize(sent)
-            
-        #Now we map words to vectors
-        unique_words = set(all_words)
-        unique_words.update('supercollider')
-        unique_words = list(unique_words)
-        
-        #Allow words to not be found
-        try_get_vector = get_vector_func(w2v_model)
-        words_mappings = {word:vect for word,vect in zip(unique_words, map(try_get_vector,unique_words))}
+        words_mappings = pickle.load(open('words_mappings.pkl','rb'))
         
         print('Building model...')
         model = build_model(words_mappings,tokenize,stopwords)
@@ -389,7 +283,7 @@ def main():
         model.fit(X_train, Y_train)
         
         print('Evaluating model...')
-        evaluate_model(model, X_test, Y_test, category_names)
+        evaluate_model(model, X_test, Y_test)
 
         print('Saving model...\n    MODEL: {}'.format(model_filepath))
         save_model(model, model_filepath)
